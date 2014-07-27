@@ -81,6 +81,51 @@
 
 #include "utils.h"
 
+__global__ void minval(const float* const d_logLuminance, float *mins, unsigned pixels){
+  int id = blockDim.x * blockIdx.x + threadIdx.x;
+  if(id>=pixels) return;
+  unsigned idl = threadIdx.x;
+  extern __shared__ float shared[];
+  //size of shared[] is given as 3rd parameter while launching the kernel
+  int i,size;
+  shared[idl] = d_logLuminance[id];
+  __syncthreads();
+  size = blockDim.x;
+  i = blockDim.x>>1;
+  while(i){
+    if(idl<i)
+      shared[idl]      = min(shared[idl],shared[idl+i]);
+    __syncthreads();
+    i=i>>1;
+  }
+  if(0==idl){
+    mins[blockIdx.x] = shared[0];
+  }
+}
+
+__global__ void maxval(const float* const d_logLuminance, float *maxs, unsigned pixels){
+  int id = blockDim.x * blockIdx.x + threadIdx.x;
+  if(id>=pixels) return;
+  unsigned idl = threadIdx.x;
+  extern __shared__ float shared[];
+  //size of shared[] is given as 3rd parameter while launching the kernel
+  int i,size;
+  shared[idl] = d_logLuminance[id];
+  __syncthreads();
+  size = blockDim.x;
+  i = blockDim.x>>1;
+  while(i){
+    if(idl<i)
+      shared[idl]      = max(shared[idl],shared[idl+i]);
+    __syncthreads();
+    i=i>>1;
+  }
+  if(0==idl){
+    mins[blockIdx.x] = shared[0];
+  }
+}
+
+
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
                                   float &min_logLum,
@@ -99,6 +144,15 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     4) Perform an exclusive scan (prefix sum) on the histogram to get
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
-
+  unsigned pixels = numRows*numCols;
+  unsigned threads = 512;
+  unsigned blocks = (pixels+threads-1)/threads; 
+  float *mins = new float[blocks];
+  float *maxs = new float[blocks];
+  minval<<<blocks,threads, size(float)*threads>>>(mins,d_logLuminance,pixels);
+  maxval<<<blocks,threads, size(float)*threads>>>(maxs,d_logLuminance,pixels);
+  minval<<<1, blocks, sizeof(float)*blocks>>>(&min_logLum,mins,blocks);
+  maxval<<<1, blocks, sizeof(float)*blocks>>>(&max_logLum,maxs,blocks);
+  printf("min = %6.3f, max=%6.3f\n", *min_logLum, *max_logLum);    
 
 }
