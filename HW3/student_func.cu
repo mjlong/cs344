@@ -80,6 +80,7 @@
 */
 
 #include "utils.h"
+#include <stdio.h>
 
 __global__ void minval(const float* const d_logLuminance, float *mins, unsigned pixels){
   int id = blockDim.x * blockIdx.x + threadIdx.x;
@@ -87,10 +88,9 @@ __global__ void minval(const float* const d_logLuminance, float *mins, unsigned 
   unsigned idl = threadIdx.x;
   extern __shared__ float shared[];
   //size of shared[] is given as 3rd parameter while launching the kernel
-  int i,size;
+  int i;
   shared[idl] = d_logLuminance[id];
   __syncthreads();
-  size = blockDim.x;
   i = blockDim.x>>1;
   while(i){
     if(idl<i)
@@ -109,10 +109,9 @@ __global__ void maxval(const float* const d_logLuminance, float *maxs, unsigned 
   unsigned idl = threadIdx.x;
   extern __shared__ float shared[];
   //size of shared[] is given as 3rd parameter while launching the kernel
-  int i,size;
+  int i;
   shared[idl] = d_logLuminance[id];
   __syncthreads();
-  size = blockDim.x;
   i = blockDim.x>>1;
   while(i){
     if(idl<i)
@@ -121,7 +120,7 @@ __global__ void maxval(const float* const d_logLuminance, float *maxs, unsigned 
     i=i>>1;
   }
   if(0==idl){
-    mins[blockIdx.x] = shared[0];
+    maxs[blockIdx.x] = shared[0];
   }
 }
 
@@ -149,10 +148,14 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   unsigned blocks = (pixels+threads-1)/threads; 
   float *mins = new float[blocks];
   float *maxs = new float[blocks];
-  minval<<<blocks,threads, size(float)*threads>>>(mins,d_logLuminance,pixels);
-  maxval<<<blocks,threads, size(float)*threads>>>(maxs,d_logLuminance,pixels);
-  minval<<<1, blocks, sizeof(float)*blocks>>>(&min_logLum,mins,blocks);
-  maxval<<<1, blocks, sizeof(float)*blocks>>>(&max_logLum,maxs,blocks);
-  printf("min = %6.3f, max=%6.3f\n", *min_logLum, *max_logLum);    
+  float * const d_mins = mins;
+  float * const d_maxs = maxs;
+  //d_mins = mins;
+  //d_maxs = maxs; 
+  minval<<<blocks,threads, sizeof(float)*threads>>>(d_logLuminance,mins,pixels);
+  maxval<<<blocks,threads, sizeof(float)*threads>>>(d_logLuminance,maxs,pixels);
+  minval<<<1, blocks, sizeof(float)*blocks>>>(d_mins,&min_logLum,blocks);
+  maxval<<<1, blocks, sizeof(float)*blocks>>>(d_maxs,&max_logLum,blocks);
+  printf("min = %6.3f, max=%6.3f\n", min_logLum, max_logLum);    
 
 }
