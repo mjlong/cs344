@@ -85,6 +85,7 @@
 __global__ void minval(const float* const d_logLuminance, float *mins, unsigned pixels){
   int id = blockDim.x * blockIdx.x + threadIdx.x;
   if(id>=pixels) return;
+
   unsigned idl = threadIdx.x;
   extern __shared__ float shared[];
   //size of shared[] is given as 3rd parameter while launching the kernel
@@ -101,11 +102,13 @@ __global__ void minval(const float* const d_logLuminance, float *mins, unsigned 
   if(0==idl){
     mins[blockIdx.x] = shared[0];
   }
+
 }
 
 __global__ void maxval(const float* const d_logLuminance, float *maxs, unsigned pixels){
   int id = blockDim.x * blockIdx.x + threadIdx.x;
-  if(id>=pixels) return;
+  if(id>=pixels)   return;
+    
   unsigned idl = threadIdx.x;
   extern __shared__ float shared[];
   //size of shared[] is given as 3rd parameter while launching the kernel
@@ -143,19 +146,26 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     4) Perform an exclusive scan (prefix sum) on the histogram to get
        the cumulative distribution of luminance values (this should go in the
        incoming d_cdf pointer which already has been allocated for you)       */
-  unsigned pixels = numRows*numCols;
-  unsigned threads = 512;
-  unsigned blocks = (pixels+threads-1)/threads; 
-  float *mins = new float[blocks];
-  float *maxs = new float[blocks];
-  float * const d_mins = mins;
-  float * const d_maxs = maxs;
-  //d_mins = mins;
-  //d_maxs = maxs; 
+  int pixels = numRows*numCols; printf("there %9d pixels\n", pixels);
+  int threads = 1024;            
+  int blocks = (pixels+threads-1)/threads;  printf("will launch %9d blocks\n", blocks);
+  float *mins;
+  float *maxs;
+  float *h_mins = new float[blocks];
+  float *h_maxs = new float[blocks];
+  checkCudaErrors(cudaMalloc(&mins,sizeof(float)*blocks));
+  checkCudaErrors(cudaMalloc(&maxs,sizeof(float)*blocks));
   minval<<<blocks,threads, sizeof(float)*threads>>>(d_logLuminance,mins,pixels);
   maxval<<<blocks,threads, sizeof(float)*threads>>>(d_logLuminance,maxs,pixels);
-  minval<<<1, blocks, sizeof(float)*blocks>>>(d_mins,&min_logLum,blocks);
-  maxval<<<1, blocks, sizeof(float)*blocks>>>(d_maxs,&max_logLum,blocks);
+  checkCudaErrors(cudaMemcpy(h_mins,mins,sizeof(float)*blocks,cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaMemcpy(h_maxs,maxs,sizeof(float)*blocks,cudaMemcpyDeviceToHost));
+    min_logLum = h_mins[0];
+    max_logLum = h_maxs[0];
+    for(int i=1;i<blocks;i++){
+        min_logLum = min(min_logLum,h_mins[i]);
+        max_logLum = max(max_logLum,h_maxs[i]);
+    }
+    
   printf("min = %6.3f, max=%6.3f\n", min_logLum, max_logLum);    
 
 }
