@@ -127,6 +127,32 @@ __global__ void maxval(const float* const d_logLuminance, float *maxs, unsigned 
   }
 }
 
+__global__ void createHisto(float min, float range, const float * const data, unsigned* histo){
+    int offset = blockIdx.x * blockDim.x;
+    int id = threadIdx.x + offset;
+    atomicAdd(histo+(int)((data[id]-min)/range*blockDim.x)+offset,1u);
+}
+
+__global__ void reduceHisto(unsigned *histos){
+  unsigned idl = threadIdx.x;
+  //gridDim.x = numBins
+  extern __shared__ unsigned histoidl[];
+  //size of shared[] is given as 3rd parameter while launching the kernel
+  int i;
+  histoidl[idl] = histos[idl*gridDim.x+blockIdx.x];
+  __syncthreads();
+  i = gridDim.x>>1;
+  while(i){
+    if(idl<i)
+      histoidl[idl] += histoidl[idl+i*gridDim.x];
+    __syncthreads();
+    i=i>>1;
+  }
+  if(0==idl){
+    histos[blockIdx.x] = histoidl[0];
+  }
+    
+}
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
@@ -149,6 +175,7 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   int pixels = numRows*numCols; printf("there %9d pixels\n", pixels);
   int threads = 1024;            
   int blocks = (pixels+threads-1)/threads;  printf("will launch %9d blocks\n", blocks);
+  int num_histo = 1024;
   float *mins;
   float *maxs;
   float *h_mins = new float[blocks];
@@ -156,16 +183,45 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   checkCudaErrors(cudaMalloc(&mins,sizeof(float)*blocks));
   checkCudaErrors(cudaMalloc(&maxs,sizeof(float)*blocks));
   minval<<<blocks,threads, sizeof(float)*threads>>>(d_logLuminance,mins,pixels);
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+    
   maxval<<<blocks,threads, sizeof(float)*threads>>>(d_logLuminance,maxs,pixels);
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
   checkCudaErrors(cudaMemcpy(h_mins,mins,sizeof(float)*blocks,cudaMemcpyDeviceToHost));
   checkCudaErrors(cudaMemcpy(h_maxs,maxs,sizeof(float)*blocks,cudaMemcpyDeviceToHost));
+  checkCudaErrors(cudaFree(mins));
+  checkCudaErrors(cudaFree(maxs));
     min_logLum = h_mins[0];
     max_logLum = h_maxs[0];
     for(int i=1;i<blocks;i++){
         min_logLum = min(min_logLum,h_mins[i]);
         max_logLum = max(max_logLum,h_maxs[i]);
     }
-    
+  delete h_mins;
+  delete h_maxs;
   printf("min = %6.3f, max=%6.3f\n", min_logLum, max_logLum);    
+
+  printf("In the range, there are %d bins\n",numBins);   
+  unsigned *d_histo;
+  checkCudaErrors(cudaMalloc(&d_histo,sizeof(unsigned)*numBins*num_histo));
+  checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned)*numBins*num_histo));
+  createHisto<<<num_histo, pixels/num_histo>>>(
+      min_logLum,max_logLum-min_logLum,d_logLuminance,d_histo);
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+  unsigned *parthisto = new unsigned[numBins];
+  checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
+  for(int i=0;i<numBins;i++){
+        printf("%3d",parthisto[i]);
+        if(31==i%32) printf("\n");
+    }   
+  printf("Now begin recuding .... \n");
+  reduceHisto<<<numBins, num_histo, sizeof(unsigned)*num_histo>>>(d_histo);
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+  checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
+    for(int i=0;i<numBins;i++){
+        printf("%3d",parthisto[i]);
+        if(7==i%8) printf("\n");
+    }
+ 
 
 }
