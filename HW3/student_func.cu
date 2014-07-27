@@ -135,7 +135,8 @@ __global__ void createHisto(float min, float range, const float * const data, un
 
 __global__ void reduceHisto(unsigned *histos){
   unsigned idl = threadIdx.x;
-  //gridDim.x = numBins
+  //gridDim.x = numBins, blockIdx.x = bin
+  //blockDim.x = num_histo, threadIdx.x = histo_id
   extern __shared__ unsigned histoidl[];
   //size of shared[] is given as 3rd parameter while launching the kernel
   int i;
@@ -144,14 +145,14 @@ __global__ void reduceHisto(unsigned *histos){
   i = gridDim.x>>1;
   while(i){
     if(idl<i)
-      histoidl[idl] += histoidl[idl+i*gridDim.x];
+      histoidl[idl] += histoidl[idl+i];
     __syncthreads();
     i=i>>1;
   }
   if(0==idl){
     histos[blockIdx.x] = histoidl[0];
   }
-    
+   
 }
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
@@ -219,8 +220,8 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
   checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
     for(int i=0;i<numBins;i++){
-        printf("%3d",parthisto[i]);
-        if(7==i%8) printf("\n");
+        printf("%5d",parthisto[i]);
+        if(15==i%16) printf("\n");
     }
  
 
