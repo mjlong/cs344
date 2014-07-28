@@ -155,6 +155,25 @@ __global__ void reduceHisto(unsigned *histos){
    
 }
 
+
+__global__ void HillisSteeleScan(unsigned *data, unsigned *d_cdf){
+    unsigned idl = threadIdx.x; 
+    extern __shared__ unsigned datasegment[];
+    datasegment[idl] = data[idl+blockDim.x*blockIdx.x];
+    __syncthreads();
+    for(int step=1;step<blockDim.x;step<<=1){
+    if(idl<step)
+        datasegment[idl+blockDim.x] = datasegment[idl];
+     else
+        datasegment[idl+blockDim.x] = datasegment[idl] + datasegment[idl-step];
+     __syncthreads();      
+    }
+    
+    d_cdf[idl+blockDim.x*blockIdx.x] = datasegment[idl+blockDim.x];
+    
+}
+
+
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
                                   float &min_logLum,
@@ -165,10 +184,10 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
 {
   //TODO
   /*Here are the steps you need to implement
-    1) find the minimum and maximum value in the input logLuminance channel
+    1)DONE: find the minimum and maximum value in the input logLuminance channel
        store in min_logLum and max_logLum
-    2) subtract them to find the range
-    3) generate a histogram of all the values in the logLuminance channel using
+    2)DONE: subtract them to find the range
+    3)DONE: generate a histogram of all the values in the logLuminance channel using
        the formula: bin = (lum[i] - lumMin) / lumRange * numBins
     4) Perform an exclusive scan (prefix sum) on the histogram to get
        the cumulative distribution of luminance values (this should go in the
@@ -224,5 +243,7 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
         if(15==i%16) printf("\n");
     }
  
+  HillisSteeleScan<<<1, numBins, sizeof(unsigned)*numBins*2>>>(d_histo,d_cdf);
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());        
 
 }
