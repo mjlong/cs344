@@ -127,10 +127,9 @@ __global__ void maxval(const float* const d_logLuminance, float *maxs, unsigned 
   }
 }
 
-__global__ void createHisto(float min, float range, const float * const data, unsigned* histo){
-    int offset = blockIdx.x * blockDim.x;
-    int id = threadIdx.x + offset;
-    atomicAdd(histo+(int)((data[id]-min)/range*blockDim.x)+offset,1u);
+__global__ void createHisto(float min, float range, unsigned numBins,const float * const data, unsigned* histo){
+    int id = threadIdx.x + blockDim.x*blockIdx.x;
+    atomicAdd(histo+(int)((data[id]-min)/range*numBins)+blockIdx.x*numBins,1u);
 }
 
 __global__ void reduceHisto(unsigned *histos){
@@ -247,31 +246,35 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   checkCudaErrors(cudaMalloc(&d_histo,sizeof(unsigned)*numBins*num_histo));
   checkCudaErrors(cudaMemset(d_histo, 0, sizeof(unsigned)*numBins*num_histo));
   createHisto<<<num_histo, pixels/num_histo>>>(
-      min_logLum,max_logLum-min_logLum,d_logLuminance,d_histo);
+      min_logLum,max_logLum-min_logLum,numBins, d_logLuminance,d_histo);
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
-  unsigned *parthisto = new unsigned[numBins];
-   
+  //unsigned *parthisto = new unsigned[numBins];
+ 
   printf("Histos created!\n");
+  /*    
   checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
-  for(int i=0;i<32/*numBins*/;i++){
+  for(int i=0;i<numBins;i++){
         printf("%3d",parthisto[i]);
         if(31==i%32) printf("\n");
     }   
   checkCudaErrors(cudaMemcpy(parthisto, d_histo+numBins, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
-  for(int i=0;i<32/*numBins*/;i++){
+  for(int i=0;i<numBins;i++){
         printf("%3d",parthisto[i]);
         if(31==i%32) printf("\n");
     }       
+  */
   printf("Now begin recuding .... \n");
   reduceHisto<<<numBins, num_histo, sizeof(unsigned)*num_histo>>>(d_histo);
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
     
+  /*  
   checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
     for(int i=0;i<numBins;i++){
         printf("%5d",parthisto[i]);
         if(15==i%16) printf("\n");
     }
- 
+  */
+    
   printf("Reduced done! Now begin scanning ...\n");
   HillisSteeleScan<<<1, numBins, sizeof(unsigned)*numBins*2>>>(d_histo,d_cdf);
   //Algorithm only allows one block, otherwise kernel give segments scanned but not totally scanned
@@ -282,11 +285,13 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   checkCudaErrors(cudaFree(d_histo));
     
   printf("Scanning done! Now inclusive to exclusive ... \n");
+  
+  /*
   checkCudaErrors(cudaMemcpy(parthisto, d_cdf, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
   for(int i=0;i<numBins;i++){
         printf("%6d",parthisto[i]);
         if(15==i%16) printf("\n");
     }  
   delete parthisto;  
-  
+  */
 }
