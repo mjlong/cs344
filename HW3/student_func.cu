@@ -157,9 +157,9 @@ __global__ void reduceHisto(unsigned *histos){
 
 
 __global__ void HillisSteeleScan(unsigned *data, unsigned *d_cdf){
-    unsigned idl = threadIdx.x; 
+    unsigned idl = threadIdx.x; //blockDim.x=1
     extern __shared__ unsigned datasegment[];
-    datasegment[idl] = data[idl+blockDim.x*blockIdx.x];
+    datasegment[idl] = data[idl];
     __syncthreads();
     for(int step=1;step<blockDim.x;step<<=1){
     if(idl<step)
@@ -169,10 +169,14 @@ __global__ void HillisSteeleScan(unsigned *data, unsigned *d_cdf){
      __syncthreads();      
     }
     
-    d_cdf[idl+blockDim.x*blockIdx.x] = datasegment[idl+blockDim.x];
+    d_cdf[idl] = datasegment[idl+blockDim.x];
     
 }
 
+__global__ void incluToExclusive(unsigned *data, unsigned *element){
+    int id = threadIdx.x + blockDim.x*blockIdx.x;
+    data[id] -= element[id];  
+}
 
 void your_histogram_and_prefixsum(const float* const d_logLuminance,
                                   unsigned int* const d_cdf,
@@ -244,6 +248,9 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
     }
  
   HillisSteeleScan<<<1, numBins, sizeof(unsigned)*numBins*2>>>(d_histo,d_cdf);
+  //Algorithm only allows one block, otherwise kernel give segments scanned but not totally scanned
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());        
 
+  incluToExclusive<<<1, numBins>>>(d_cdf,d_histo);
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());        
 }
