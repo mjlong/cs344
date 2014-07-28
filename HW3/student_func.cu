@@ -166,7 +166,9 @@ __global__ void HillisSteeleScan(unsigned *data, unsigned *d_cdf){
         datasegment[idl+blockDim.x] = datasegment[idl];
      else
         datasegment[idl+blockDim.x] = datasegment[idl] + datasegment[idl-step];
-     __syncthreads();      
+     __syncthreads();     
+     datasegment[idl] = datasegment[idl+blockDim.x];
+     __syncthreads();
     }
     
     d_cdf[idl] = datasegment[idl+blockDim.x];
@@ -224,7 +226,22 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
   delete h_mins;
   delete h_maxs;
   printf("min = %6.3f, max=%6.3f\n", min_logLum, max_logLum);    
-
+    
+/*    
+  //min and max are correct
+  float tempmin, tempmax;
+  float * h_logLuminance = new float[pixels];
+  checkCudaErrors(cudaMemcpy(h_logLuminance, d_logLuminance, sizeof(float)*pixels, cudaMemcpyDeviceToHost));
+  tempmin=h_logLuminance[0];
+  tempmax=tempmin;
+    for(int i=1;i<pixels;i++){
+        tempmin=min(tempmin,h_logLuminance[i]);
+        tempmax=max(tempmax,h_logLuminance[i]);
+    }
+  delete h_logLuminance;
+  printf("min should be %6.3f, max should be %6.3f\n", tempmin, tempmax);    
+*/
+    
   printf("In the range, there are %d bins\n",numBins);   
   unsigned *d_histo;
   checkCudaErrors(cudaMalloc(&d_histo,sizeof(unsigned)*numBins*num_histo));
@@ -233,24 +250,43 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
       min_logLum,max_logLum-min_logLum,d_logLuminance,d_histo);
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
   unsigned *parthisto = new unsigned[numBins];
+   
+  printf("Histos created!\n");
   checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
-  for(int i=0;i<numBins;i++){
+  for(int i=0;i<32/*numBins*/;i++){
         printf("%3d",parthisto[i]);
         if(31==i%32) printf("\n");
     }   
+  checkCudaErrors(cudaMemcpy(parthisto, d_histo+numBins, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
+  for(int i=0;i<32/*numBins*/;i++){
+        printf("%3d",parthisto[i]);
+        if(31==i%32) printf("\n");
+    }       
   printf("Now begin recuding .... \n");
   reduceHisto<<<numBins, num_histo, sizeof(unsigned)*num_histo>>>(d_histo);
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+    
   checkCudaErrors(cudaMemcpy(parthisto, d_histo, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
     for(int i=0;i<numBins;i++){
         printf("%5d",parthisto[i]);
         if(15==i%16) printf("\n");
     }
  
+  printf("Reduced done! Now begin scanning ...\n");
   HillisSteeleScan<<<1, numBins, sizeof(unsigned)*numBins*2>>>(d_histo,d_cdf);
   //Algorithm only allows one block, otherwise kernel give segments scanned but not totally scanned
   cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());        
 
   incluToExclusive<<<1, numBins>>>(d_cdf,d_histo);
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());        
+  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());  
+  checkCudaErrors(cudaFree(d_histo));
+    
+  printf("Scanning done! Now inclusive to exclusive ... \n");
+  checkCudaErrors(cudaMemcpy(parthisto, d_cdf, sizeof(unsigned)*numBins, cudaMemcpyDeviceToHost));
+  for(int i=0;i<numBins;i++){
+        printf("%6d",parthisto[i]);
+        if(15==i%16) printf("\n");
+    }  
+  delete parthisto;  
+  
 }
