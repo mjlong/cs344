@@ -79,6 +79,25 @@ __global__ void reduceHisto(unsigned *histos){
    
 }
 
+__global__ void HillisSteeleScan(unsigned *data, unsigned *d_cdf){
+    unsigned idl = threadIdx.x; //blockDim.x=1
+    extern __shared__ unsigned datasegment[];
+    datasegment[idl] = data[idl];
+    __syncthreads();
+    for(int step=1;step<blockDim.x;step<<=1){
+    if(idl<step)
+        datasegment[idl+blockDim.x] = datasegment[idl];
+     else
+        datasegment[idl+blockDim.x] = datasegment[idl] + datasegment[idl-step];
+     __syncthreads();     
+     datasegment[idl] = datasegment[idl+blockDim.x];
+     __syncthreads();
+    }
+    
+    d_cdf[idl] = datasegment[idl+blockDim.x];
+    
+}
+
 void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
@@ -100,6 +119,10 @@ void your_sort(unsigned int* const d_inputVals,
 
       reduceHisto<<<NUMBINS, numHistos, sizeof(unsigned)*numHistos>>>(d_histos);  
       cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+
+      HillisSteeleScan<<<1, NUMBINS, sizeof(unsigned)*NUMBINS*2>>>(d_histos,d_histos);
+      //Algorithm only allows one block, otherwise kernel give segments scanned but not totally scanned
+      cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());  
    }
 
 
