@@ -54,12 +54,30 @@ __global__ void createHisto(const unsigned * const data, unsigned* histo, unsign
     int id = threadIdx.x + blockDim.x*blockIdx.x;
     if(id>=numElems) return;
 #if defined(RADIXBYTE)
-    atomicAdd(histo+ (data[id]>>(order*RADIXBIT))&(ANDOPERA) +blockIdx.x*NUMBINS,1u);
+    atomicAdd(histo+ (unsigned)(data[id]>>(order*RADIXBIT))&(ANDOPERA) +blockIdx.x*NUMBINS,1u);
 #else
     atomicAdd(histo+ (unsigned)((data[id]>>order)&(1u)) + blockIdx.x*2,1u);
 #endif
 }
 
+__global__ void reduceHisto(unsigned *histos){
+  unsigned idl = threadIdx.x;
+  extern __shared__ unsigned histoidl[];
+  int i;
+  histoidl[idl] = histos[idl*gridDim.x+blockIdx.x];
+  __syncthreads();
+  i = gridDim.x>>1;
+  while(i){
+    if(idl<i)
+      histoidl[idl] += histoidl[idl+i];
+    __syncthreads();
+    i=i>>1;
+  }
+  if(0==idl){
+    histos[blockIdx.x] = histoidl[0];
+  }
+   
+}
 
 void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
@@ -79,8 +97,10 @@ void your_sort(unsigned int* const d_inputVals,
     for(unsigned i=0;i<keybit/RADIXBIT;i++){
       createHisto<<<numHistos,(numElems+numHistos-1)/numHistos>>>(d_inputVals, d_histos, i, numElems);     
       cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
-        
-    }
+
+      reduceHisto<<<NUMBINS, numHistos, sizeof(unsigned)*numHistos>>>(d_histos);  
+      cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+   }
 
 
 }
