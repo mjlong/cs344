@@ -41,6 +41,21 @@
    at the end.
 
  */
+//#define RADIXBIT 4
+#if defined(RADIXBIT)
+  #define ANDOPERA 0x1111
+  #define NUMBINS  16
+#endif
+
+__global__ void createHisto(const unsigned * const data, unsigned* histo, unsigned order, unsigned numElems){
+    int id = threadIdx.x + blockDim.x*blockIdx.x;
+    if(id>=numElems) return;
+#if defined(RADIXBIT)
+    atomicAdd(histo+ (data[id]>>(order*RADIXBIT))&(ANDOPERA) +blockIdx.x*NUMBINS,1u);
+#else
+    atomicAdd(histo+ (data[id]>>order)&(0x1) + blockIdx.x*2,1u);
+#endif
+}
 
 
 void your_sort(unsigned int* const d_inputVals,
@@ -51,4 +66,18 @@ void your_sort(unsigned int* const d_inputVals,
 { 
   //TODO
   //PUT YOUR SORT HERE
+
+    printf("There are %d elements to be sorted.\n",numElems);
+    /*test 1bit radix*/
+    unsigned keybit = sizeof(unsigned)*8;
+    unsigned int* d_histos;
+    unsigned numHistos = 1024;
+    checkCudaErrors(cudaMalloc(&d_histos,sizeof(unsigned)*NUMBINS*numHistos));
+    for(unsigned i=0;i<keybit/RADIXBIT;i++){
+      createHisto<<<numHistos,(numElems+numHistos-1)/numHistos>>>(d_inputVals, d_histos, i, numElems);     
+      cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
+        
+    }
+
+
 }
