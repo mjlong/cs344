@@ -98,6 +98,11 @@ __global__ void HillisSteeleScan(unsigned *data, unsigned *d_cdf){
     
 }
 
+__global__ void incluToExclusive(unsigned *data, unsigned *element){
+    int id = threadIdx.x + blockDim.x*blockIdx.x;
+    data[id] -= element[id];  
+} 
+
 void your_sort(unsigned int* const d_inputVals,
                unsigned int* const d_inputPos,
                unsigned int* const d_outputVals,
@@ -111,8 +116,10 @@ void your_sort(unsigned int* const d_inputVals,
     /*test 1bit radix*/
     unsigned keybit = sizeof(unsigned)*8;
     unsigned int* d_histos;
+    unsigned int* d_chisto;
     unsigned numHistos = 1024;
     checkCudaErrors(cudaMalloc(&d_histos,sizeof(unsigned)*NUMBINS*numHistos));
+    checkCudaErrors(cudaMalloc(&d_chisto,sizeof(unsigned)*NUMBINS));
     for(unsigned i=0;i<keybit/RADIXBIT;i++){
       createHisto<<<numHistos,(numElems+numHistos-1)/numHistos>>>(d_inputVals, d_histos, i, numElems);     
       cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
@@ -120,10 +127,14 @@ void your_sort(unsigned int* const d_inputVals,
       reduceHisto<<<NUMBINS, numHistos, sizeof(unsigned)*numHistos>>>(d_histos);  
       cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());    
 
-      HillisSteeleScan<<<1, NUMBINS, sizeof(unsigned)*NUMBINS*2>>>(d_histos,d_histos);
+      HillisSteeleScan<<<1, NUMBINS, sizeof(unsigned)*NUMBINS*2>>>(d_histos,d_chisto);
       //Algorithm only allows one block, otherwise kernel give segments scanned but not totally scanned
       cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());  
+
+      incluToExclusive<<<1, numBins>>>(d_chisto,d_histos);
+      cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());  
    }
+
 
 
 }
