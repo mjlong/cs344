@@ -2,6 +2,7 @@
 //Radix Sorting
 
 #include "utils.h"
+#include <stdio.h>
 #include <thrust/host_vector.h>
 
 /* Red Eye Removal
@@ -41,8 +42,10 @@
    at the end.
 
  */
-//#define RADIXBIT 4
-#if defined(RADIXBIT)
+#define RADIXBIT 1 //4
+#define NUMBINS  2
+//#define RADIXBYTE
+#if defined(RADIXBYTE)
   #define ANDOPERA 0x1111
   #define NUMBINS  16
 #endif
@@ -50,10 +53,10 @@
 __global__ void createHisto(const unsigned * const data, unsigned* histo, unsigned order, unsigned numElems){
     int id = threadIdx.x + blockDim.x*blockIdx.x;
     if(id>=numElems) return;
-#if defined(RADIXBIT)
+#if defined(RADIXBYTE)
     atomicAdd(histo+ (data[id]>>(order*RADIXBIT))&(ANDOPERA) +blockIdx.x*NUMBINS,1u);
 #else
-    atomicAdd(histo+ (data[id]>>order)&(0x1) + blockIdx.x*2,1u);
+    atomicAdd(histo+ (unsigned)((data[id]>>order)&(1u)) + blockIdx.x*2,1u);
 #endif
 }
 
